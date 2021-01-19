@@ -8,66 +8,9 @@ from equivariant_attention.from_se3cnn.SO3 import rot
 torch.manual_seed(0)
 import torch.nn as nn
 from torch.utils.data import DataLoader
+from halo_datasets import get_haloDataset
+from model import SE3Transformer
 
-from equivariant_attention.fibers import Fiber
-from equivariant_attention.modules import GSE3Res, GNormSE3, GConvSE3, GMaxPooling, get_basis_and_r
-# The maximum feature type is harmonic degree 3
-# from experiments.qm9.QM9 import QM9Dataset
-from dgl.nn.pytorch.glob import AvgPooling
-
-
-class GAvgVecPooling(nn.Module):
-    """Graph Average Pooling module."""
-
-    def __init__(self):
-        super().__init__()
-        self.pool = AvgPooling()
-
-    def forward(self, features, G, **kwargs):
-        print(f'before pool: {summary(features["1"])}')
-        h_vec = []
-        for i in range(3):
-            h = features['1'][..., i]
-            # print(f'before pool: {summary(h)}')
-            h_vec.append(self.pool(G, h))
-        return torch.cat(h_vec, axis=1)
-
-
-def build_model():
-    # The Fiber() object is a representation of the structure of the activations.
-    # Its first argument is the number of degrees (0-based), so num_degrees=4 leads
-    # to feature types 0,1,2,3. The second argument is the number of channels (aka
-    # multiplicities) for each degree. It is possible to have a varying number of
-    # channels/multiplicities per feature type and to use arbitrary feature types,
-    # for this functionality check out fibers.py.
-    num_degrees = 2
-    num_features = 16  # todo added by Chen
-    fiber_in = Fiber(1, num_features)
-    fiber_mid = Fiber(num_degrees, 16)
-    fiber_out = Fiber(2, 128)
-
-    # We build a module from:
-    # 1) a multihead attention block
-    # 2) a nonlinearity
-    # 3) a TFN layer (no attention)
-    # 4) graph max pooling
-    # 5) a fully connected layer -> 1 output
-
-    model = nn.ModuleList([GSE3Res(fiber_in, fiber_mid),
-                           # GNormSE3(fiber_mid),
-                           # GConvSE3(fiber_mid, fiber_out, self_interaction=True),
-                           # GConvSE3(fiber_out, Fiber(2, 1, structure=[(1, 1)]), self_interaction=True),
-                           # GAvgVecPooling()
-                           GConvSE3(fiber_mid, Fiber(2, 1, structure=[(1, 1)]), self_interaction=True),
-                           ])
-    fc_layer = nn.Linear(128, 1)
-    return model
-
-
-def collate(samples):
-    graphs, y = map(list, zip(*samples))
-    batched_graph = dgl.batch(graphs)
-    return batched_graph, torch.tensor(y)
 
 
 def summary(features):
@@ -78,35 +21,39 @@ def summary(features):
         print(f'Size: {features.size()}')
 
 
-def set_feat(G, R, num_features=16):
-    G.edata['d'] = G.edata['d'] @ R
-    # G.edata['w'] = torch.rand((G.edata['d'].size(0), 0))
-    # G.ndata['x'] = torch.rand((G.ndata['x'].size(0), 0))
-    G.ndata['f'] = torch.ones((G.ndata['f'].size(0), num_features, 1))
-    print(G)
+def rotate_feature(G, R, num_features=16):
+  G.edata['d'] = G.edata['d']@R
+  G.ndata['velocity'] = G.ndata['velocity']@R
+  return G
 
-    # Run SE(3)-transformer layers: the activations are passed around as a dict,
-    # the key given as the feature type (an integer in string form) and the value
-    # represented as a Pytorch tensor in the DGL node feature representation.
+def test_model_equivaraince(model, graph, rot_ang = (10,30,45)):
+  g1 = deepcopy(graph)
+  g2 = deepcopy(graph)
 
-    features = {'0': G.ndata['f']}
-    return G, features
+  R  = rot(*rot_ang)
+  g1 = rotate_feature(g1, R)
+  out1 = model(g1)
+  out2 = model(g2)
+  error = (1 - out2/ out1).abs().mean().detach().numpy()
+  print(f'error: {error}')
+  assert error < 1e-5, f'it is not equivariant for rotation {rot_ang} with error {error:.2e} > 1e-5'
+
+if __name__ == '__main__':
+  model_se3 = SE3Transformer(num_layers=4, 
+                             atom_feature_size= 1,
+                             num_channels=16,  
+                             num_degrees=4, 
+                             edge_dim=0,
+                             div = 2,
+                             pooling='max',
+                             n_heads=2)
+  
+  model_se3.eval()
+  halods = get_haloDataset()
+  X_graph, y = halods[0]
+
+  test_model_equivaraince(model_se3, X_graph, rot_ang = (10, 20, 30))
 
 
-def apply_model(model, G, features, num_degrees=2):
-    basis, r = get_basis_and_r(G, num_degrees - 1)
-    for i, layer in enumerate(model):
-        # print(f'feat before {layer}')
-        # summary(features)
-        features = layer(features, G=G, r=r, basis=basis)
-        # print(f'feat after {layer}')
-        # summary(features)
-        # print('-' * 100)
-        # print(i, features)
-    # print(features)
-    return features['1'][:, 0, :]
-    # Run non-DGL layers: we can do this because GMaxPooling has converted features
-    # from the DGL node feature representation to the standard Pytorch tensor rep.
-    # print(features)
-    # output = fc_layer(features)
-    # print(output.size())
+
+

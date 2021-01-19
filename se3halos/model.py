@@ -12,7 +12,7 @@ from typing import Dict, Tuple, List
 from equivariant_attention.modules import GConvSE3, GNormSE3, get_basis_and_r, GSE3Res, GMaxPooling, GAvgPooling
 from equivariant_attention.fibers import Fiber
 
-from halo_datasets import get_haloDataset, visualize_halo_group
+from .halo_datasets import get_haloDataset, visualize_halo_group
 
 class SE3Transformer(nn.Module):
     def __init__(self,  num_layers: int, atom_feature_size: int, num_channels: int, num_nlayers: int=1, num_degrees: int=4, 

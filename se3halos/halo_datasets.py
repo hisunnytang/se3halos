@@ -29,6 +29,7 @@ class haloDataset(Dataset):
                groupCounts,
                groupIndx, 
                k: int = 5,
+               feature_columns: List[List] = ['halo_mvir', 'halo_vx', 'halo_vy', 'halo_vz']
                target_columns: List = ['halo_nfw_conc'], 
                fully_connected: bool=False):
     self.df = df
@@ -40,6 +41,17 @@ class haloDataset(Dataset):
     # TODO: use the training stats unlike the other papers
     self.mean = np.mean(self.targets)
     self.std = np.std(self.targets)
+
+  
+  def feature_normalization_stats(self, features, pre_norm: Dict = {}):
+    """precompute the feature stats and transormation for normalization"""
+    for feat_name, values in features.items():
+      if feat_name in method:
+
+      else:
+        # do only a minmax
+
+
 
   def get_target(self, idx, normalize=True):
     target = self.targets[idx]
@@ -53,7 +65,7 @@ class haloDataset(Dataset):
   
   def __getitem__(self, idx):
     start, end = self.groupIndx[idx], self.groupIndx[idx+1]
-    halo_group = self.df.iloc[start: end]
+    halo_group = self.df.iloc[start: end].clone().detach()
 
     halos_position = torch.from_numpy(halo_group[['halo_x', 'halo_y', 'halo_z']].values)
     halos_vel  = torch.from_numpy(halo_group[['halo_vx', 'halo_vy', 'halo_vz']].values)

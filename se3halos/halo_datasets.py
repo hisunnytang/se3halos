@@ -23,6 +23,9 @@ import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 import networkx as nx
 
+from sklearn.model_selection import train_test_split
+
+
 class haloDataset(Dataset):
   def __init__(self, 
                df,
@@ -83,7 +86,7 @@ class haloDataset(Dataset):
 
   
   def __getitem__(self, idx):
-    start, end = self.groupIndx[idx], self.groupIndx[idx+1]
+    start, end = self.groupIndx[idx]
     halo_group = self.df.iloc[start: end]
 
     halos_position = torch.from_numpy(halo_group[['halo_x', 'halo_y', 'halo_z']].values)
@@ -181,16 +184,29 @@ def order_halos_by_hostid(df_halos: pd.DataFrame, min_halo_counts: int = 5) -> (
   return grp_index, grp_count, grp_halos_df
 
 
-def get_haloDataset(fname= "/content/drive/MyDrive/halo_network/hlist_1.00035.list.halotools_v0p4.hdf5") -> Dataset:
+def get_haloDataset(train_split = None, 
+                    fname= "/content/drive/MyDrive/halo_network/hlist_1.00035.list.halotools_v0p4.hdf5") -> Dataset:
   """read the halo catalog in as a pytorch Dataset"""
   df_halos = load_halos_catalog_df(fname = fname)
   grp_index, grp_count, grp_halos_df = order_halos_by_hostid(df_halos, min_halo_counts=5)
-  return haloDataset(df = grp_halos_df, groupCounts=grp_count, groupIndx=grp_index)
+  if train_split is None:
+    start_end_index_pair = list(zip(grp_index[:-1], grp_index[1:]))
+    return haloDataset(df = grp_halos_df, groupCounts=grp_count, groupIndx=start_end_index_pair)
+
+  train_idx, test_idx = train_test_split(range(len(grp_count)), train_size=train_split)
+
+  train_start_end_pair = [[grp_index[t], grp_index[t+1]]  for t in train_idx]
+  test_start_end_pair  = [[grp_index[t], grp_index[t+1]]  for t in test_idx]
+
+  train_dataset = haloDataset(df = grp_halos_df, groupCounts=grp_count[train_idx], groupIndx=train_start_end_pair)
+  test_dataset  = haloDataset(df = grp_halos_df, groupCounts=grp_count[test_idx], groupIndx=test_start_end_pair)
+
+  return train_dataset, test_dataset
 
 def visualize_halo_group(haloDS, index):
   graph, y = haloDS[index]
   print(graph)
-  logmass = graph.ndata['mass'].log10().clone().detach().numpy()
+  logmass = graph.ndata['mass'].clone().detach().numpy()
   logmass_norm = (logmass - logmass.min()) / logmass.std()
   pos     = graph.ndata['x'].clone().detach().numpy()[:,:2]
   # y = np.log10(y+1e-10)

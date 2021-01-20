@@ -12,7 +12,7 @@ from typing import Dict, Tuple, List
 from equivariant_attention.modules import GConvSE3, GNormSE3, get_basis_and_r, GSE3Res, GMaxPooling, GAvgPooling
 from equivariant_attention.fibers import Fiber
 
-from .halo_datasets import get_haloDataset, visualize_halo_group
+from halo_datasets import get_haloDataset, visualize_halo_group
 
 class SE3Transformer(nn.Module):
     def __init__(self,  num_layers: int, atom_feature_size: int, num_channels: int, num_nlayers: int=1, num_degrees: int=4, 
@@ -73,7 +73,7 @@ class SE3Transformer(nn.Module):
         basis, r = get_basis_and_r(G, self.num_degrees-1)
 
         # encoder (equivariant layers)
-        logmass  = G.ndata['mass'].log10().unsqueeze(-1)
+        logmass  = G.ndata['mass'].unsqueeze(-1)
         velocity = G.ndata['velocity'].unsqueeze(1)
         h = {'0': logmass,
             '1': velocity}

@@ -42,6 +42,7 @@ class haloDataset(Dataset):
     self.mean = np.mean(self.targets)
     self.std = np.std(self.targets)
 
+    self.prepare_features()
   
   # def feature_normalization_stats(self, features, pre_norm: Dict = {}):
   #   """precompute the feature stats and transormation for normalization"""
@@ -51,6 +52,24 @@ class haloDataset(Dataset):
   #     else:
   #       # do only a minmax
 
+  def prepare_features(self, columns = ['halo_mvir', 'halo_vx', 'halo_vy', 'halo_vz']):
+
+    # log transform halo mass
+    logM = np.log10(self.df['halo_mvir'].values)
+    vx, vy, vz = self.df['halo_vx'].values, self.df['halo_vy'].values, self.df['halo_vz'].values
+    logMnorm, logM_mean, logM_std = self.normalize(logM)
+    vxnorm, vxmean, vxstd = self.normalize(vx)
+    vynorm, vymean, vystd = self.normalize(vy)
+    vznorm, vzmean, vzstd = self.normalize(vz)
+
+    self.df['logMnorm'] = logMnorm
+    self.df['vxnorm'] = vxnorm
+    self.df['vynorm'] = vynorm
+    self.df['vznorm'] = vznorm
+
+  def normalize(self, x):
+    mean, std = x.mean(), x.std()
+    return (x-mean)/std, mean, std
 
 
   def get_target(self, idx, normalize=True):
@@ -68,8 +87,8 @@ class haloDataset(Dataset):
     halo_group = self.df.iloc[start: end]
 
     halos_position = torch.from_numpy(halo_group[['halo_x', 'halo_y', 'halo_z']].values)
-    halos_vel  = torch.from_numpy(halo_group[['halo_vx', 'halo_vy', 'halo_vz']].values)
-    halos_mvir = torch.from_numpy(halo_group[['halo_mvir']].values)
+    halos_vel  = torch.from_numpy(halo_group[['vxnorm', 'vynorm', 'vznorm']].values)
+    halos_mvir = torch.from_numpy(halo_group[['logMnorm']].values)
 
     # instead of using KNN graph
     # which contains self edges.....
@@ -77,7 +96,7 @@ class haloDataset(Dataset):
     halos_knn = self.get_NearestNeightborGraph(halos_position, self.k)
 
     u, v  = halos_knn.edges()
-    halos_knn.edata['d'] = torch.tensor(halos_position[u] - halos_position[v]) #[num_atoms,3]
+    halos_knn.edata['d'] = (halos_position[u] - halos_position[v]).clone().detach() #[num_atoms,3]
 
     halos_knn.ndata['mass']     = halos_mvir
     halos_knn.ndata['velocity'] = halos_vel

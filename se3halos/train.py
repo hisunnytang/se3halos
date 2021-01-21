@@ -2,9 +2,10 @@ import torch
 from torch.utils.data import DataLoader
 import dgl
 import numpy as np
+import matplotlib.pyplot as plt
 import pytorch_lightning as pl
-from model import SE3Transformer
-import halo_datasets
+from .model import SE3Transformer
+from .halo_datasets import get_haloDataset
 
 def collate(samples):
   graphs, y = map(list, zip(*samples))
@@ -25,7 +26,7 @@ class SE3_HaloTransformer(pl.LightningModule):
                                 edge_dim=0,
                                 div = 2,
                                 pooling='max',
-                                n_heads=4)
+                                n_heads=2)
     self.loss_fn = torch.nn.MSELoss()
 
   def forward(self, x):
@@ -46,6 +47,7 @@ class SE3_HaloTransformer(pl.LightningModule):
     return (logmass, pred, y)
   
   def validation_epoch_end(self, val_step_outputs):
+    if self.current_epoch % 10 != 0: return
     mass, predictions, ytrue = [], [], []
     f, ax = plt.subplots(1, 3, 
                          sharey=True, sharex=True,

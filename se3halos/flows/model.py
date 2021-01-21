@@ -5,6 +5,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 import numpy as np
 from torch.utils.data import DataLoader
+from ..halo_datasets import get_haloDataset
 
 # adapt primarily from the Deep Unsupervised Learning Coursework
 # https://sites.google.com/view/berkeley-cs294-158-sp20/home
@@ -62,8 +63,44 @@ class MLP(pl.LightningModule):
     def forward(self, x):
         return self.layers(x)
 
+class RealNVP(nn.Module):
+  def __init__(self, dims):
+    super(RealNVP, self).__init__()
+    self.prior = torch.distributions.Normal(torch.tensor(0.), torch.tensor(1.))
+    self.flow = nn.ModuleList([
+                               AffineTransform(dims//2, dims, 'A'),
+                               AffineTransform(dims//2, dims, 'B'),
+                               AffineTransform(dims//2, dims, 'A'),
+                               AffineTransform(dims//2, dims, 'B'), 
+                               AffineTransform(dims//2, dims, 'A'),
+                               AffineTransform(dims//2, dims, 'B'), 
+                               ])
+    self.dims = dims
+
+  def g(self, z):
+    # z -> x (inverse of f)
+    for op in reversed(self.flow):
+      z, _ = op.forward(z, reverse=True)
+    return z
+
+  def f(self, x):
+    # maps x-> z, and returns the log determinant (not reduced)
+    z, log_det = x, torch.zeros_like(x)
+    for op in self.flow:
+      z, delta_log_det = op.forward(z)
+      log_det += delta_log_det
+    return z, log_det
+
+  def log_prob(self, x):
+    z, log_det = self.f(x)
+    return torch.sum(self.prior.log_prob(z), dim=-1) + torch.sum(log_det, dim=-1)
+
+  def sample(self, num_samples):
+    z = self.prior.sample([num_samples, self.dims])
+    return self.g(z)
+
 class RealNVPTrainer(pl.LightningModule):
-  def __init__(self, features_column=None, learning_rate=2.e-4, n_epochs= 1000):
+  def __init__(self, features_column=None, learning_rate=2.0e-4, n_epochs= 1000):
     super(RealNVPTrainer, self).__init__()
     if features_column is None:
       # halo_dmvir_dt_inst
@@ -79,18 +116,18 @@ class RealNVPTrainer(pl.LightningModule):
 
     self.features_column = features_column
     self.dims = len(features_column)
-    self.train_loader, self.val_loader = self.create_dataloaders()
+    # self.train_loader, self.val_loader = self.create_dataloaders()
     self.log_interval = 100
     self.n_epochs = n_epochs
     self.learning_rate = learning_rate
-    self.n_batches_in_epoch = len(self.train_loader)
+    # self.n_batches_in_epoch = len(self.train_loader)
 
     # initialize the model
     self.flow = RealNVP(self.dims)
     self.optimizer = torch.optim.Adam(self.flow.parameters(), lr=self.learning_rate)
 
 
-  def create_dataloaders(self, sample_size =100000, dataframe=df_halos, batch_size=1024):
+  def create_dataloaders(self, dataframe, sample_size =100000, batch_size=1024):
     # should absorb the above code and wrap it here
     # features_column = ['halo_spin', 'halo_m500c', 'halo_rvir', 
     #                   'halo_mvir', 'halo_vacc', 'halo_vmax']
@@ -133,6 +170,7 @@ class RealNVPTrainer(pl.LightningModule):
 
 if __name__ == "__main__":
   rnvp_train = RealNVPTrainer()
-  train, val = rnvp_train.create_dataloaders()
+  haloDS = get_haloDataset()
+  train, val = rnvp_train.create_dataloaders(dataframe= haloDS.df)
   trainer = pl.Trainer(gpus=1, max_epochs=100, auto_lr_find=True, progress_bar_refresh_rate=50)
   trainer.fit(rnvp_train, train_dataloader = train, val_dataloaders= val)

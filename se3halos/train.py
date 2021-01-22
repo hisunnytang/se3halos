@@ -88,8 +88,8 @@ class SE3_HaloTransformer(pl.LightningModule):
     ax[1].set_ylabel('conc')
     
     ax[2].set_title('ytrue vs ypred')
-    ax[1].set_xlabel('true concentration')
-    ax[1].set_ylabel('predicted concentration')
+    ax[2].set_xlabel('true concentration')
+    ax[2].set_ylabel('predicted concentration')
     plt.show()
 
     del mass
@@ -99,14 +99,15 @@ class SE3_HaloTransformer(pl.LightningModule):
 
   def configure_optimizers(self):
     optimizer = torch.optim.Adam(self.parameters(), lr=self.hparams.learning_rate)
+    lr_schedule = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=10)
     return {
         'optimizer': optimizer,
-        'lr_scheduler': ReduceLROnPlateau(optimizer),
+        'lr_scheduler': lr_schedule,
         'monitor': 'val_loss'
     }
 
-  def configure_optimizers(self):
-    return torch.optim.Adam(self.parameters(), lr=self.hparams.learning_rate)
+  # def configure_optimizers(self):
+  #   return torch.optim.Adam(self.parameters(), lr=self.hparams.learning_rate)
 
 
 

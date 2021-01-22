@@ -14,20 +14,33 @@ def collate(samples):
   return batched_graph, torch.from_numpy(np.vstack(y))
 
 class SE3_HaloTransformer(pl.LightningModule):
-  def __init__(self, learning_rate=1e-3):
+  def __init__(self, 
+               learning_rate=1e-3,
+               num_layers = 2,
+               atom_feature_size = 1,
+               num_channels = 16,
+               num_degrees  = 4,
+               edge_dim = 0,
+               div = 2,
+               pooling = 'max',
+               n_heads = 4):
     super(SE3_HaloTransformer, self).__init__()
+    self.save_hyperparameters()
 
-    self.learning_rate = learning_rate
     # initialize model
-    self.model = SE3Transformer(num_layers=2, 
-                                atom_feature_size= 1,
-                                num_channels=16,  
-                                num_degrees=4, 
-                                edge_dim=0,
-                                div = 2,
+    self.model = SE3Transformer(num_layers= num_layers, 
+                                atom_feature_size= atom_feature_size,
+                                num_channels= num_channels,  
+                                num_degrees= num_degrees, 
+                                edge_dim= edge_dim,
+                                div = div,
                                 pooling='max',
-                                n_heads=2)
+                                n_heads= n_heads)
+    
+
     self.loss_fn = torch.nn.MSELoss()
+
+    
 
   def forward(self, x):
     return self.model(x)
@@ -85,7 +98,15 @@ class SE3_HaloTransformer(pl.LightningModule):
 
 
   def configure_optimizers(self):
-    return torch.optim.Adam(self.parameters(), lr=self.learning_rate)
+    optimizer = torch.optim.Adam(self.parameters(), lr=self.hparams.learning_rate)
+    return {
+        'optimizer': optimizer,
+        'lr_scheduler': ReduceLROnPlateau(optimizer),
+        'monitor': 'val_loss'
+    }
+
+  def configure_optimizers(self):
+    return torch.optim.Adam(self.parameters(), lr=self.hparams.learning_rate)
 
 
 

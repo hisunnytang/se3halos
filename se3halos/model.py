@@ -34,8 +34,6 @@ class SE3Transformer(nn.Module):
 
         blocks = self._build_gcn(self.fibers, 1)
         self.Gblock, self.FCblock = blocks
-        print(self.Gblock)
-        print(self.FCblock)
 
     def _build_gcn(self, fibers, out_dim):
         # Equivariant layers
@@ -76,7 +74,7 @@ class SE3Transformer(nn.Module):
         logmass  = G.ndata['mass'].unsqueeze(-1)
         velocity = G.ndata['velocity'].unsqueeze(1)
         h = {'0': logmass,
-            '1': velocity}
+             '1': velocity}
 
         for layer in self.Gblock[:-1]:
             h = layer(h, G=G, r=r, basis=basis)

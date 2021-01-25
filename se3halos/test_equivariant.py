@@ -8,8 +8,8 @@ from equivariant_attention.from_se3cnn.SO3 import rot
 torch.manual_seed(0)
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from halo_datasets import get_haloDataset
-from model import SE3Transformer
+from .halo_datasets import get_haloDataset
+from .model import SE3Transformer
 
 
 

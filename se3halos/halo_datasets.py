@@ -119,6 +119,55 @@ class haloDataset(Dataset):
     g = dgl.graph((src,dst))
     return g
 
+
+class haloDataset_RandomMask(haloDataset):
+  """similar to haloDataset, but the target is a randomly mask halo attributes"""
+  def __getitem__(self, idx):
+    start, end = self.groupIndx[idx]
+    halo_group = self.df.iloc[start: end]
+
+    p = halo_group[['halo_x', 'halo_y', 'halo_z']].values
+    v = halo_group[['vxnorm', 'vynorm', 'vznorm']].values
+    m = halo_group[['logMnorm']].values
+
+    # get a masked index, but not the most massive ones
+    halos, _ = m.shape
+    masked_idx = np.random.randint(1, halos)
+    # position/ velocity should be a relative quantity,
+    # here we set the reference 'center' 
+    # to be the most massive halo in the cluster
+    y_relpos = p[masked_idx] - p[0]
+    y_mass   = m[masked_idx]
+    y_relvel = v[masked_idx] - v[0]
+    y = {}
+    y['1'] = np.vstack([y_relpos, y_relvel])
+    y['0'] = y_mass
+
+    # remove the masked row
+    x_p = np.vstack([p[:masked_idx], p[masked_idx+1:]])
+    x_v = np.vstack([v[:masked_idx], v[masked_idx+1:]])
+    x_m = np.vstack([m[:masked_idx], m[masked_idx+1:]])
+
+    halos_position = torch.from_numpy(x_p)
+    halos_vel      = torch.from_numpy(x_v)
+    halos_mvir     = torch.from_numpy(x_m)
+
+    # instead of using KNN graph
+    # which contains self edges.....
+    # halos_knn = dgl.knn_graph(halos_position, self.k)
+    halos_knn = self.get_NearestNeightborGraph(halos_position, self.k)
+
+    u, v  = halos_knn.edges()
+    halos_knn.edata['d'] = (halos_position[u] - halos_position[v]).clone().detach() #[num_atoms,3]
+
+    halos_knn.ndata['mass']     = halos_mvir
+    halos_knn.ndata['velocity'] = halos_vel
+    halos_knn.ndata['x'] = halos_position - halos_position.mean(dim=0)
+
+    #y = self.get_target(torch.arange(start, end), normalize=True)
+
+    return halos_knn, y
+
 def collate(samples):
     graphs, y = map(list, zip(*samples))
     batched_graph = dgl.batch(graphs)

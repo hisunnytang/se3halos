@@ -8,8 +8,9 @@ from dgl.nn.pytorch import GraphConv, NNConv
 from torch import nn
 from torch.nn import functional as F
 from typing import Dict, Tuple, List
+import dgl
 
-from equivariant_attention.modules import GConvSE3, GNormSE3, get_basis_and_r, GSE3Res, GMaxPooling, GAvgPooling
+from equivariant_attention.modules import GConvSE3, GNormSE3, get_basis_and_r, GSE3Res, GMaxPooling, GAvgPooling, G1x1SE3
 from equivariant_attention.fibers import Fiber
 
 from .halo_datasets import get_haloDataset, visualize_halo_group
@@ -128,6 +129,10 @@ class SE3Transformer_Vector(nn.Module):
         f_out = Fiber(2, 2)
         FCblock.append(G1x1SE3(f_in, f_out))
 
+        if self.pooling == 'avg':
+          self.PoolingLayer = dgl.nn.pytorch.glob.AvgPooling()
+        else:
+          self.PoolingLayer = dgl.nn.pytorch.glob.MaxPooling()
 
         return nn.ModuleList(Gblock), nn.ModuleList(FCblock)
 
@@ -148,11 +153,9 @@ class SE3Transformer_Vector(nn.Module):
         h = self.FCblock[0](h)
 
         # aggregate the node features
-        if self.pooling == 'avg':
-          h['0'], h['1'] = h['0'].mean(axis=0), h['1'].mean(axis=0)
-        else:
-          h['0'], h['1'] = h['0'].max(axis=0), h['1'].max(axis=0)
+        h['0'], h['1'] = self.PoolingLayer(G, h['0']), self.PoolingLayer(G, h['1'])
 
+        
         h = self.FCblock[1](h)
         return h
 

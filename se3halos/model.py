@@ -17,7 +17,7 @@ from .halo_datasets import get_haloDataset, visualize_halo_group
 
 class SE3Transformer(nn.Module):
     def __init__(self,  num_layers: int, atom_feature_size: int, num_channels: int, num_nlayers: int=1, num_degrees: int=4, 
-                 edge_dim: int=4, div: float=4, pooling: str='avg', n_heads: int=1, **kwargs):
+                 edge_dim: int=4, div: float=4, pooling: str='avg', n_heads: int=1, **kwargs, output_channels = 1):
         super().__init__()
         # Build the network
         self.num_layers = num_layers
@@ -28,6 +28,7 @@ class SE3Transformer(nn.Module):
         self.div = div
         self.pooling = pooling
         self.n_heads = n_heads
+        self.output_channels = output_channels
 
         self.fibers = {'in': Fiber(2, atom_feature_size),
                        'mid': Fiber(num_degrees, self.num_channels),
@@ -62,7 +63,7 @@ class SE3Transformer(nn.Module):
         FCblock = []
         FCblock.append(nn.Linear(64, 128))
         FCblock.append(nn.ReLU(inplace=True))
-        FCblock.append(nn.Linear(128, 1))
+        FCblock.append(nn.Linear(128, self.output_channels))
 
 
         return nn.ModuleList(Gblock), nn.ModuleList(FCblock)

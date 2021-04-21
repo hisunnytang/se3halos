@@ -17,7 +17,7 @@ from .halo_datasets import get_haloDataset, visualize_halo_group
 
 class SE3Transformer(nn.Module):
     def __init__(self,  num_layers: int, atom_feature_size: int, num_channels: int, num_nlayers: int=1, num_degrees: int=4, 
-                 edge_dim: int=4, div: float=4, pooling: str='avg', n_heads: int=1, **kwargs, output_channels = 1):
+                 edge_dim: int=4, div: float=4, pooling: str='avg', n_heads: int=1, output_channels = 1, **kwargs):
         super().__init__()
         # Build the network
         self.num_layers = num_layers

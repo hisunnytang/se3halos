@@ -84,6 +84,175 @@ class haloDataset(Dataset):
   def __len__(self):
     return len(self.groupCounts)
 
+class haloDataset_tng(Dataset):
+  """
+  load the halo dataset from dataframe to batch it as dgl.graph
+
+  ...
+
+  Parameters
+  ----------
+  df: pd.DataFrame
+    attributes of the halo data, ordered by the group of halos
+  groupCounts: np.ndarray
+    number of halos in each group, with size equal to the number of graphs/ groups of haloes (N)
+  groupIndx: np.ndarray
+    the index between which the halo are considered a group, with size equal to the (N, 2)
+  k: int
+    maximum number of nearest neighbor for each halo
+  position_columns: [str, str, str]
+    the columns in df that corresponds to the position of each halo
+  velocity_columns: [str, str, str]
+    the columns in df that corresponds to the velocity of each halo
+  spin_columns: [str, str, str]
+    the columns in df that corresponds to the spin of each halo  
+  mass_columns:
+
+  """
+  def __init__(self, 
+               df,
+               groupCounts,
+               groupIndx, 
+               k: int,
+               
+               # Input columns from DM-only information 
+               position_columns: Tuple[str, str, str],
+               velocity_columns: Tuple[str, str, str], 
+               spin_columns: Tuple[str, str, str],
+               mass_columns: Tuple[str,...],
+              #  scalar_feature_columns: Union( Tuple[str], () ) = (),
+               log_normalize_columns: Tuple[str,...],
+               
+               # List of baryons properties
+               target_columns: Tuple[str,...], 
+              #  log_normalize_target: Tuple[str,...],
+               fully_connected: bool=False,
+               floor: float=1.0e-20):
+    self.df = df
+    self.groupCounts = groupCounts
+    self.groupIndx   = groupIndx
+
+    self.k = k
+
+    self.floor     = floor
+    self.log_floor = np.log10(floor)
+    self.targets = np.log10(self.df[target_columns].values + self.floor)
+    # TODO: use the training stats unlike the other papers
+
+    # log normalize the targets
+    # self.mean = np.array([ np.mean(t[t>self.log_floor])  for t in self.targets.T])
+    # self.std  = np.array([ np.std (t[t>self.log_floor])  for t in self.targets.T])
+    # self.norm_target = self.targets.copy()
+    # for i, t in enumerate(self.targets.T):
+    #   self.norm_target[t > self.log_floor, i] = (t[t > self.log_floor] - self.mean[i]) / self.std[i]
+    # self.norm_target = np.nan_to_num(self.norm_target, nan=self.log_floor)
+
+    # log normalize the targets
+    self.mean = np.array([ np.mean(t[t>self.log_floor])  for t in self.targets.T])
+    self.std  = np.array([ np.std (t[t>self.log_floor])  for t in self.targets.T])
+    self.norm_target = self.targets.copy()
+    self.norm_target = np.nan_to_num(self.norm_target, nan=self.log_floor)
+    for i, t in enumerate(self.norm_target.T):
+      flag = t >  self.log_floor
+      print(i, target_columns[i], self.norm_target[flag, i].min(), self.log_floor)
+      tmp = (t[flag] - self.mean[i]) / self.std[i]
+      self.norm_target[flag,  i] = tmp
+
+      flag = t >  self.log_floor
+      self.norm_target[~flag, i] = tmp.min() - 2.0*self.std[i]
+
+      print(i, target_columns[i], t[flag].min(), self.log_floor)
+
+    self.position_columns = position_columns
+    self.velocity_columns = velocity_columns
+    self.mass_columns     = mass_columns
+    self.spin_columns     = spin_columns
+    self.log_normalize_columns = log_normalize_columns
+    self.feature_columns  = feature_columns
+    input_columns = self.position_columns + self.velocity_columns +  self.mass_columns + self.spin_columns + self.feature_columns
+    self.standard_columns = list(set(input_columns) - set(self.log_normalize_columns))
+    
+    self.norm_columns = []
+    self.standardize_features(self.log_normalize_columns, log=True)
+    self.standardize_features(self.standard_columns,      log=False)
+    self.df = self.df.astype(np.float32)
+
+
+  def standardize_targets(self, columns, log=True):
+    features = np.log10(self.df[columns]) if log else self.df[columns]
+    norm_features = (features - features.mean(axis=0))/ features.std(axis=0)
+    norm_columns  = [f"{c}_norm" for c in columns]
+    self.df[norm_columns] = norm_features
+    self.norm_columns += norm_columns
+
+  def standardize_features(self, columns, log=True):
+    features = np.log10(self.df[columns]) if log else self.df[columns]
+    norm_features = (features - features.mean(axis=0))/ features.std(axis=0)
+    norm_columns  = [f"{c}_norm" for c in columns]
+    self.df[norm_columns] = norm_features
+    self.norm_columns += norm_columns
+
+
+  def get_target(self, idx, normalize=True):
+    target = self.targets[idx]
+    if normalize:
+      target = (target - self.mean) / self.std
+    return target
+
+  def __len__(self):
+    return len(self.groupCounts)
+
+  
+  def __getitem__(self, idx):
+    start, end = self.groupIndx[idx]
+    # start, end = self.groupIndx[idx], self.groupIndx[idx+1]
+    halo_group = self.df.iloc[start: end]
+
+    halos_position = torch.from_numpy(halo_group[[f"{c}_norm" for c in self.position_columns]].values)
+    halos_vel      = torch.from_numpy(halo_group[[f"{c}_norm" for c in self.velocity_columns]].values)
+    halos_spins    = torch.from_numpy(halo_group[[f"{c}_norm" for c in self.spin_columns]].values)
+    halos_mvir     = torch.from_numpy(halo_group[[f"{c}_norm" for c in self.mass_columns]].values)
+    halos_features  = torch.from_numpy(halo_group[[f"{c}_norm" for c in self.feature_columns]].values)
+
+    # instead of using KNN graph
+    # which contains self edges.....
+    # halos_knn = dgl.knn_graph(halos_position, self.k)
+    halos_knn = self.get_NearestNeightborGraph(halos_position, min(self.k, end-start))
+
+    u, v  = halos_knn.edges()
+    halos_knn.edata['d'] = (halos_position[u] - halos_position[v]).clone().detach() #[num_atoms,3]
+
+    halos_knn.ndata['mass']     = halos_mvir
+    halos_knn.ndata['features'] = halos_features
+    halos_knn.ndata['velocity'] = halos_vel
+    halos_knn.ndata['spin']     = halos_spins
+    halos_knn.ndata['x'] = halos_position - halos_position.mean(dim=0)
+
+    # y = self.get_target(torch.arange(start, end), normalize=True)
+
+    y = self.norm_target[start:end]
+
+    return halos_knn, y
+
+  def get_NearestNeightborGraph(self, position, k):
+    # nbrs = NearestNeighbors(n_neighbors=k, algorithm='ball_tree').fit(position)
+    # distances, indices = nbrs.kneighbors(position, include_self= False)
+
+    # src = np.hstack([np.ones(self.k)*i for i in range(len(position))]).astype(int)
+    # dst = np.hstack(indices[:,1:]).astype(int)
+
+    # g = dgl.graph((src,dst))
+    
+    if k == 1:
+      sp_mat = kneighbors_graph(X = position, n_neighbors= k, include_self=True )
+      sp_mat.data[0] = 0
+    elif k <= self.k:
+      sp_mat = kneighbors_graph(X = position, n_neighbors= k-1, include_self=False )
+    else:
+      sp_mat = kneighbors_graph(X = position, n_neighbors= k, include_self=False )
+    g = dgl.from_scipy(sp_mat)
+    return g
+
   
   def __getitem__(self, idx):
     start, end = self.groupIndx[idx]
